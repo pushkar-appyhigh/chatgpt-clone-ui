@@ -35,6 +35,14 @@ document.addEventListener('DOMContentLoaded', () => {
         chatInput.style.height = (chatInput.scrollHeight) + 'px';
     });
     
+    // Handle command+enter (Mac) or ctrl+enter (Windows/Linux)
+    chatInput.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            e.preventDefault();
+            chatForm.dispatchEvent(new Event('submit'));
+        }
+    });
+    
     // Handle form submission for chat
     chatForm.addEventListener('submit', async (e) => {
         e.preventDefault();
