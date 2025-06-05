@@ -10,10 +10,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // User authentication elements
     const loginArea = document.getElementById('login-area');
     const userInfo = document.getElementById('user-info');
-    const emailInput = document.getElementById('email-input');
-    const loginBtn = document.getElementById('login-btn');
-    const logoutBtn = document.getElementById('logout-btn');
     const userEmail = document.getElementById('user-email');
+    const logoutBtn = document.getElementById('logout-btn');
+    const googleLoginBtn = document.getElementById('google-login-btn');
+    const loginOverlay = document.getElementById('login-overlay');
+    const overlayLoginBtn = document.getElementById('overlay-google-login-btn');
     const clearConversationsBtn = document.getElementById('clear-conversations-btn');
     
     // Modal elements
@@ -26,8 +27,12 @@ document.addEventListener('DOMContentLoaded', () => {
     let conversations = loadConversations();
     let currentUser = null;
     
+    // Check for just_logged_out parameter in URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const justLoggedOut = urlParams.get('just_logged_out');
+    
     // Initialize authentication state
-    initializeAuthState();
+    initializeAuthState(justLoggedOut === 'true');
     
     // Auto-resize the textarea as the user types
     chatInput.addEventListener('input', () => {
@@ -46,6 +51,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // Handle form submission for chat
     chatForm.addEventListener('submit', async (e) => {
         e.preventDefault();
+        
+        // Check if user is logged in
+        if (!currentUser) {
+            // Show login overlay if not logged in
+            loginOverlay.classList.remove('hidden');
+            return;
+        }
         
         const message = chatInput.value.trim();
         if (!message) return;
@@ -152,6 +164,13 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Handle new chat button click
     newChatBtn.addEventListener('click', () => {
+        // Check if user is logged in
+        if (!currentUser) {
+            // Show login overlay if not logged in
+            loginOverlay.classList.remove('hidden');
+            return;
+        }
+        
         // Clear chat messages
         clearChatMessages();
         
@@ -164,6 +183,13 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Handle conversation history click
     conversationHistory.addEventListener('click', (e) => {
+        // Check if user is logged in
+        if (!currentUser) {
+            // Show login overlay if not logged in
+            loginOverlay.classList.remove('hidden');
+            return;
+        }
+        
         if (e.target.classList.contains('conversation-item')) {
             const conversationId = e.target.dataset.id;
             
@@ -183,23 +209,37 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
-    // Handle login button click
-    loginBtn.addEventListener('click', () => {
-        const email = emailInput.value.trim();
-        if (email && isValidEmail(email)) {
-            login(email);
-        } else {
-            alert('Please enter a valid email address');
-        }
+    // Handle Google login button click
+    googleLoginBtn.addEventListener('click', () => {
+        window.location.href = '/login/google';
     });
+    
+    // Handle overlay Google login button click
+    if (overlayLoginBtn) {
+        overlayLoginBtn.addEventListener('click', () => {
+            window.location.href = '/login/google';
+        });
+    }
     
     // Handle logout button click
     logoutBtn.addEventListener('click', () => {
-        logout();
+        // Clean up local storage before redirecting
+        localStorage.removeItem('chatUser');
+        localStorage.removeItem('chatConversations');
+        
+        // Redirect to server-side logout
+        window.location.href = '/logout';
     });
     
     // Handle clear conversations button click
     clearConversationsBtn.addEventListener('click', () => {
+        // Check if user is logged in
+        if (!currentUser) {
+            // Show login overlay if not logged in
+            loginOverlay.classList.remove('hidden');
+            return;
+        }
+        
         showClearModal();
     });
     
@@ -218,39 +258,52 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeConversationHistory();
     
     // Initialize auth state
-    function initializeAuthState() {
+    function initializeAuthState(justLoggedOut) {
+        // If user just logged out, ensure all login-required elements are reset
+        if (justLoggedOut) {
+            currentUser = null;
+            showLoginForm();
+            return;
+        }
+        
+        // Check if user data was passed from the server
+        if (typeof serverUser !== 'undefined' && serverUser) {
+            currentUser = {
+                email: serverUser.email,
+                name: serverUser.name,
+                picture: serverUser.picture
+            };
+            showUserInfo();
+            loadUserSessions();
+            enableChatInput();
+            return;
+        }
+        
+        // Fallback to localStorage
         const savedUser = localStorage.getItem('chatUser');
         if (savedUser) {
             currentUser = JSON.parse(savedUser);
             showUserInfo();
             loadUserSessions();
+            enableChatInput();
+        } else {
+            // Not logged in
+            currentUser = null;
+            showLoginForm();
+            disableChatInput();
         }
     }
     
-    // Login function
-    async function login(email) {
-        try {
-            currentUser = { email };
-            localStorage.setItem('chatUser', JSON.stringify(currentUser));
-            showUserInfo();
-            
-            // Load user sessions from the server
-            await loadUserSessions();
-            
-        } catch (error) {
-            console.error('Login error:', error);
-            alert('An error occurred during login. Please try again.');
-            logout();
-        }
+    // Enable chat input
+    function enableChatInput() {
+        chatInput.disabled = false;
+        chatInput.placeholder = "Message ChatGPT...";
     }
     
-    // Logout function
-    function logout() {
-        currentUser = null;
-        localStorage.removeItem('chatUser');
-        showLoginForm();
-        clearChatMessages();
-        updateConversationHistoryUI();
+    // Disable chat input
+    function disableChatInput() {
+        chatInput.disabled = true;
+        chatInput.placeholder = "Please login to chat...";
     }
     
     // Show user info
@@ -258,13 +311,47 @@ document.addEventListener('DOMContentLoaded', () => {
         loginArea.classList.add('hidden');
         userInfo.classList.remove('hidden');
         userEmail.textContent = currentUser.email;
+        
+        // Hide login overlay
+        if (loginOverlay) {
+            loginOverlay.classList.add('hidden');
+        }
+        
+        // If user has a profile picture (from Google)
+        if (currentUser.picture && !document.querySelector('.profile-pic')) {
+            const profilePic = document.createElement('img');
+            profilePic.src = currentUser.picture;
+            profilePic.alt = 'Profile';
+            profilePic.classList.add('profile-pic');
+            userInfo.insertBefore(profilePic, userEmail);
+        }
     }
     
     // Show login form
     function showLoginForm() {
+        // Reset user UI elements
         userInfo.classList.add('hidden');
         loginArea.classList.remove('hidden');
-        emailInput.value = '';
+        
+        // Show login overlay
+        if (loginOverlay) {
+            loginOverlay.classList.remove('hidden');
+        }
+        
+        // Clear conversation history display
+        conversations = [];
+        updateConversationHistoryUI();
+        
+        // Reset chat display
+        clearChatMessages(true);
+        
+        // Disable input
+        disableChatInput();
+        
+        // Remove any active conversation highlighting
+        document.querySelectorAll('.conversation-item').forEach(item => {
+            item.classList.remove('active');
+        });
     }
     
     // Load user sessions from server
@@ -778,67 +865,5 @@ document.addEventListener('DOMContentLoaded', () => {
     // Function to save conversations to local storage
     function saveConversations() {
         localStorage.setItem('chatConversations', JSON.stringify(conversations));
-    }
-    
-    // Function to validate email
-    function isValidEmail(email) {
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        return emailRegex.test(email);
-    }
-    
-    // Function to extract image URL from text content
-    function extractImageUrlFromText(text) {
-        console.log('Attempting to extract image URL from:', text);
-        
-        // Check for the specific format in the screenshot: [here](https://...)
-        const screenshotFormatRegex = /\[here\]\(?(https?:\/\/[^)\s]+)/i;
-        const screenshotMatch = text.match(screenshotFormatRegex);
-        if (screenshotMatch && screenshotMatch[1]) {
-            console.log('Found screenshot format URL:', screenshotMatch[1]);
-            return screenshotMatch[1];
-        }
-        
-        // Handle the specific format seen in the screenshot: [here](url) without spaces
-        const hereRegex = /\[here\]\((https?:\/\/.*?)\)/i;
-        const hereMatch = text.match(hereRegex);
-        if (hereMatch && hereMatch[1]) {
-            console.log('Found [here] link URL:', hereMatch[1]);
-            return hereMatch[1];
-        }
-        
-        // Handle case where there are no spaces between [here] and (url)
-        const compactHereRegex = /\[here\]\((.*?)\)/i;
-        const compactHereMatch = text.match(compactHereRegex);
-        if (compactHereMatch && compactHereMatch[1]) {
-            console.log('Found compact [here] link URL:', compactHereMatch[1]);
-            return compactHereMatch[1];
-        }
-        
-        // First, check for the specific format from the example with "here" link text
-        const s3LinkRegex = /\[here\]\((https?:\/\/.*?amazonaws\.com\/.*?)\)/i;
-        const s3LinkMatch = text.match(s3LinkRegex);
-        if (s3LinkMatch && s3LinkMatch[1]) {
-            console.log('Found S3 link with "here" text:', s3LinkMatch[1]);
-            return s3LinkMatch[1];
-        }
-        
-        // Check for any AWS S3 URL in markdown links
-        const anyS3LinkRegex = /\[.*?\]\((https?:\/\/.*?amazonaws\.com\/.*?)\)/i;
-        const anyS3LinkMatch = text.match(anyS3LinkRegex);
-        if (anyS3LinkMatch && anyS3LinkMatch[1]) {
-            console.log('Found general S3 link:', anyS3LinkMatch[1]);
-            return anyS3LinkMatch[1];
-        }
-        
-        // Last resort - extract any URL that looks like an image path
-        const anyUrlRegex = /(https?:\/\/[^\s"\)]+\.(png|jpg|jpeg|gif))/i;
-        const anyUrlMatch = text.match(anyUrlRegex);
-        if (anyUrlMatch && anyUrlMatch[1]) {
-            console.log('Found any image URL:', anyUrlMatch[1]);
-            return anyUrlMatch[1];
-        }
-        
-        console.log('No image URL found in text');
-        return null;
     }
 }); 

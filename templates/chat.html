@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ChatGPT Clone</title>
     <link rel="stylesheet" href="{{ url_for('static', path='/css/styles.css') }}">
+    <!-- Font Awesome for Google icon -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
     <div class="chat-container">
@@ -14,12 +16,16 @@
                     <button id="new-chat-btn">+ New chat</button>
                 </div>
                 <div class="user-section" id="user-section">
-                    <div class="login-area" id="login-area">
-                        <input type="email" id="email-input" placeholder="Enter your email" />
-                        <button id="login-btn">Login</button>
+                    <div class="login-area" id="login-area" {% if user %}class="hidden"{% endif %}>
+                        <button id="google-login-btn" class="google-btn">
+                            <i class="fab fa-google"></i> Login with Google
+                        </button>
                     </div>
-                    <div class="user-info hidden" id="user-info">
-                        <span id="user-email"></span>
+                    <div class="user-info {% if not user %}hidden{% endif %}" id="user-info">
+                        {% if user and user.picture %}
+                        <img src="{{ user.picture }}" alt="Profile" class="profile-pic">
+                        {% endif %}
+                        <span id="user-email">{% if user %}{{ user.email }}{% endif %}</span>
                         <button id="logout-btn">Logout</button>
                     </div>
                 </div>
@@ -38,6 +44,17 @@
         </div>
         
         <div class="main-content">
+            <!-- Login overlay shown when user isn't logged in -->
+            <div id="login-overlay" class="login-overlay {% if user %}hidden{% endif %}">
+                <div class="login-overlay-content">
+                    <h2>Login Required</h2>
+                    <p>Please login with Google to use the chat feature.</p>
+                    <button id="overlay-google-login-btn" class="google-btn">
+                        <i class="fab fa-google"></i> Login with Google
+                    </button>
+                </div>
+            </div>
+            
             <div class="chat-messages" id="chat-messages">
                 <div class="welcome-message">
                     <h1>ChatGPT Clone</h1>
@@ -76,6 +93,18 @@
         </div>
     </div>
     
+    <script>
+        // Pass server-side user data to JavaScript
+        {% if user %}
+        const serverUser = {
+            email: "{{ user.email }}",
+            name: {% if user.name %}"{{ user.name }}"{% else %}null{% endif %},
+            picture: {% if user.picture %}"{{ user.picture }}"{% else %}null{% endif %}
+        };
+        {% else %}
+        const serverUser = null;
+        {% endif %}
+    </script>
     <script src="{{ url_for('static', path='/js/chat.js') }}"></script>
 </body>
 </html> 
