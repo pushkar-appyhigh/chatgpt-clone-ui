@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 # Google OAuth configuration
 CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-REDIRECT_URI = "https://aibanners2.phot.ai/auth/callback" if socket.gethostname() == "iof1582d" else "http://127.0.0.1:8000/auth/callback"
+REDIRECT_URI = "https://aichats.phot.ai/auth/callback" if socket.gethostname() == "iof1582d" else "http://127.0.0.1:8000/auth/callback"
 AUTH_URI = "https://accounts.google.com/o/oauth2/auth"
 TOKEN_URI = "https://oauth2.googleapis.com/token"
 USER_INFO = "https://www.googleapis.com/oauth2/v1/userinfo"

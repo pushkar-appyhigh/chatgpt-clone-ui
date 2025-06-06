@@ -1,0 +1,1 @@
+sudo pm2 start --name=ai-chats-ui "/home/scrapper/aichats/chatgpt-clone-ui/venv/bin/uvicorn main:app --workers 4 --port 8002 --host 0.0.0.0"
