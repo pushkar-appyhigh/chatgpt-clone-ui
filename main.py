@@ -381,37 +381,6 @@ async def get_conversation_history(request: SessionRequest, user: Optional[UserI
             
             if response.status_code == 200:
                 history_data = response.json()
-                
-                # Store messages in MongoDB
-                if history_data.get("messages"):
-                    # Update session
-                    sessions_collection.update_one(
-                        {"session_id": request.session_id},
-                        {"$set": {
-                            "session_id": history_data["session_id"],
-                            "email_id": history_data["email_id"],
-                            "created_at": history_data["created_at"],
-                            "updated_at": history_data["updated_at"]
-                        }},
-                        upsert=True
-                    )
-                    
-                    # Insert messages
-                    for msg in history_data["messages"]:
-                        messages_collection.update_one(
-                            {
-                                "session_id": request.session_id,
-                                "timestamp": msg["timestamp"]
-                            },
-                            {"$set": {
-                                "session_id": request.session_id,
-                                "role": msg["role"],
-                                "content": msg["content"],
-                                "timestamp": msg["timestamp"]
-                            }},
-                            upsert=True
-                        )
-                
                 return history_data
             else:
                 # For development - if backend isn't available, return mock data
