@@ -260,19 +260,28 @@ body {
     border-bottom: 1px solid rgba(124, 132, 248, 0.8);
 }
 
+/* Image styling for messages */
 .image-container {
     margin-top: 15px;
     max-width: 100%;
-    border-radius: 6px;
+    border-radius: 8px;
     overflow: hidden;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    background-color: rgba(0, 0, 0, 0.1);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    background-color: rgba(0, 0, 0, 0.05);
+    display: inline-block;
 }
 
 .image-container img {
     display: block;
     max-width: 100%;
-    transition: opacity 0.3s ease;
+    border-radius: 8px;
+    max-height: 400px;
+    object-fit: contain;
+    transition: transform 0.3s ease;
+}
+
+.image-container img:hover {
+    transform: scale(1.01);
 }
 
 .message-metadata {
@@ -285,28 +294,39 @@ body {
 
 /* Input area styles */
 .chat-input-container {
-    padding: 10px 20px 20px;
+    padding: 15px 20px;
     background-color: #343541;
     border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .input-wrapper {
+    display: flex;
+    align-items: flex-end;
+    background-color: #40414f;
+    border-radius: 10px;
+    padding: 10px 15px;
     position: relative;
-    max-width: 800px;
-    margin: 0 auto;
+    transition: box-shadow 0.3s ease;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.input-wrapper:focus-within {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2), 0 0 0 2px rgba(124, 132, 248, 0.3);
 }
 
 #chat-input {
-    width: 100%;
-    padding: 12px 50px 12px 15px;
-    border-radius: 8px;
-    border: 1px solid #565869;
-    background-color: #40414f;
+    flex-grow: 1;
+    background-color: transparent;
+    border: none;
     color: #ececf1;
     font-size: 16px;
+    line-height: 1.5;
     resize: none;
     outline: none;
-    transition: height 0.2s ease;
+    max-height: 200px;
+    overflow-y: auto;
+    padding-right: 50px;
+    padding-left: 5px;
 }
 
 #chat-input:focus {
@@ -320,14 +340,32 @@ body {
     cursor: not-allowed;
 }
 
+/* Send button styling */
 #send-btn {
-    position: absolute;
-    right: 10px;
-    bottom: 10px;
-    background-color: transparent;
+    position: relative;
+    background: transparent;
     border: none;
-    color: #ececf1;
+    color: #7c84f8;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     cursor: pointer;
+    transition: all 0.2s ease;
+    margin-left: 8px;
+}
+
+#send-btn:hover {
+    background-color: #444654;
+    transform: translateY(-2px);
+}
+
+#send-btn:disabled {
+    color: #4d4d56;
+    cursor: not-allowed;
+    opacity: 0.6;
 }
 
 .send-icon {
@@ -458,4 +496,122 @@ body {
 .login-overlay .google-btn {
     margin: 0 auto;
     max-width: 250px;
+}
+
+/* Upload button styling */
+.upload-image-btn {
+    background: transparent;
+    border: none;
+    color: #8e8ea0;
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 50%;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 8px;
+}
+
+.upload-image-btn:hover {
+    background-color: #444654;
+    color: #fff;
+    transform: translateY(-1px);
+}
+
+.upload-image-btn i {
+    font-size: 18px;
+}
+
+/* Image preview styling */
+.image-preview-container {
+    margin: 10px 0;
+    width: 100%;
+    padding: 0 12px;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.image-preview {
+    position: relative;
+    display: inline-block;
+    max-width: 120px;
+    max-height: 90px;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    border: 2px solid #565869;
+    transition: all 0.2s ease;
+}
+
+.image-preview:hover {
+    border-color: #7c84f8;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.25);
+}
+
+.image-preview img {
+    width: 100%;
+    height: 100%;
+    max-height: 86px;
+    object-fit: cover;
+}
+
+.remove-image-btn {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    background: rgba(0, 0, 0, 0.7);
+    border: none;
+    color: white;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0.8;
+    transition: all 0.2s ease;
+    font-size: 10px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.remove-image-btn:hover {
+    opacity: 1;
+    background: rgba(240, 55, 55, 0.9);
+    transform: scale(1.1);
+}
+
+/* Upload loading indicator */
+.upload-loading {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.7);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    border-radius: 8px;
+    z-index: 5;
+    font-size: 12px;
+}
+
+.upload-loading .spinner {
+    width: 24px;
+    height: 24px;
+    border: 3px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    border-top-color: white;
+    animation: spinner 1s linear infinite;
+    margin-bottom: 8px;
+}
+
+@keyframes spinner {
+    to {
+        transform: rotate(360deg);
+    }
 } 

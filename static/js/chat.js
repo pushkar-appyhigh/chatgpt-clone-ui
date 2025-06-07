@@ -7,6 +7,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const conversationHistory = document.getElementById('conversation-history');
     const historyPlaceholder = document.getElementById('history-placeholder');
     
+    // Image upload elements
+    const uploadImageBtn = document.getElementById('upload-image-btn');
+    const imageUploadInput = document.getElementById('image-upload');
+    const imagePreviewContainer = document.getElementById('image-preview-container');
+    const imagePreview = document.getElementById('image-preview');
+    const removeImageBtn = document.getElementById('remove-image-btn');
+    
     // User authentication elements
     const loginArea = document.getElementById('login-area');
     const userInfo = document.getElementById('user-info');
@@ -26,6 +33,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentConversationId = generateConversationId();
     let conversations = loadConversations();
     let currentUser = null;
+    let selectedImage = null;
     
     // Check for just_logged_out parameter in URL
     const urlParams = new URLSearchParams(window.location.search);
@@ -38,6 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
     chatInput.addEventListener('input', () => {
         chatInput.style.height = 'auto';
         chatInput.style.height = (chatInput.scrollHeight) + 'px';
+        validateSendButton();
     });
     
     // Handle command+enter (Mac) or ctrl+enter (Windows/Linux)
@@ -47,6 +56,95 @@ document.addEventListener('DOMContentLoaded', () => {
             chatForm.dispatchEvent(new Event('submit'));
         }
     });
+    
+    // Image upload functionality
+    uploadImageBtn.addEventListener('click', () => {
+        // Check if user is logged in
+        if (!currentUser) {
+            loginOverlay.classList.remove('hidden');
+            return;
+        }
+        imageUploadInput.click();
+    });
+    
+    imageUploadInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            // Validate file size (max 5MB)
+            const maxSize = 5 * 1024 * 1024; // 5MB
+            if (file.size > maxSize) {
+                alert('Image size exceeds 5MB limit. Please choose a smaller image.');
+                imageUploadInput.value = '';
+                return;
+            }
+            
+            // Validate file type
+            if (!file.type.startsWith('image/')) {
+                alert('Please select a valid image file.');
+                imageUploadInput.value = '';
+                return;
+            }
+            
+            // Save the selected image for later use
+            selectedImage = file;
+            
+            // Show image preview with a nice animation
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                imagePreview.src = event.target.result;
+                imagePreviewContainer.classList.remove('hidden');
+                imagePreviewContainer.style.opacity = '0';
+                imagePreviewContainer.style.transform = 'translateY(10px)';
+                
+                // Animate appearance
+                setTimeout(() => {
+                    imagePreviewContainer.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+                    imagePreviewContainer.style.opacity = '1';
+                    imagePreviewContainer.style.transform = 'translateY(0)';
+                }, 10);
+            };
+            reader.readAsDataURL(file);
+            
+            // Make sure the send button validation is updated
+            validateSendButton();
+            
+            // Focus the input field for typing a message
+            chatInput.focus();
+        }
+    });
+    
+    removeImageBtn.addEventListener('click', () => {
+        // Clear the image preview with animation
+        imagePreviewContainer.style.opacity = '0';
+        imagePreviewContainer.style.transform = 'translateY(10px)';
+        
+        // After animation completes, hide the container and reset
+        setTimeout(() => {
+            imagePreviewContainer.classList.add('hidden');
+            imagePreview.src = '';
+            imageUploadInput.value = '';
+            selectedImage = null;
+            
+            // Update send button validation
+            validateSendButton();
+        }, 300);
+    });
+    
+    // Function to validate if the send button should be enabled
+    function validateSendButton() {
+        const message = chatInput.value.trim();
+        const hasImage = selectedImage !== null;
+        const sendBtn = document.getElementById('send-btn');
+        
+        // Disable send button if no message (even if image is selected)
+        if (!message) {
+            sendBtn.disabled = true;
+            sendBtn.title = "Please enter a message";
+        } else {
+            sendBtn.disabled = false;
+            sendBtn.title = hasImage ? "Send message with image" : "Send message";
+        }
+    }
     
     // Handle form submission for chat
     chatForm.addEventListener('submit', async (e) => {
@@ -60,7 +158,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         const message = chatInput.value.trim();
-        if (!message) return;
+        if (!message) return; // Ensure there's always a text message
         
         // Clear input field and reset height
         chatInput.value = '';
@@ -73,14 +171,141 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         // Add user message to the chat
-        addMessage('user', message);
+        addMessage('user', message, null, selectedImage ? URL.createObjectURL(selectedImage) : null);
         
         // Show loading indicator
         const loadingIndicator = addLoadingIndicator();
         
         try {
+            // Create FormData for the message and image (if any)
+            let requestBody = {
+                message: message,
+                conversation_id: currentConversationId
+            };
+            
+            // Add email if user is logged in
+            if (currentUser) {
+                requestBody.email_id = currentUser.email;
+            }
+            
+            let imageUrl = null;
+            
+            // If image is selected, upload it first to S3
+            if (selectedImage) {
+                try {
+                    // Create FormData
+                    const formData = new FormData();
+                    formData.append('image', selectedImage);
+                    
+                    console.log('Uploading image...');
+                    
+                    // Show loading indicator on the preview
+                    const loadingOverlay = document.createElement('div');
+                    loadingOverlay.className = 'upload-loading';
+                    
+                    const spinner = document.createElement('div');
+                    spinner.className = 'spinner';
+                    
+                    const loadingText = document.createElement('span');
+                    loadingText.textContent = 'Uploading...';
+                    
+                    loadingOverlay.appendChild(spinner);
+                    loadingOverlay.appendChild(loadingText);
+                    
+                    // Add loading overlay to the preview container
+                    const imagePreviewElement = document.querySelector('.image-preview');
+                    imagePreviewElement.style.position = 'relative';
+                    imagePreviewElement.appendChild(loadingOverlay);
+                    
+                    // Use the direct upload endpoint which now handles S3 uploads
+                    const uploadResponse = await fetch('/api/v1/direct-upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    console.log('Upload status:', uploadResponse.status);
+let imageUrl = null;
+
+if (uploadResponse.ok) {
+                        const uploadResult = await uploadResponse.json();
+                        console.log('Upload success:', uploadResult);
+                        imageUrl = uploadResult.image_url;
+                    } else {
+                        console.error('Direct upload failed');
+                        throw new Error(`Upload failed with status: ${uploadResponse.status}`);
+                    }
+                    
+                    // Remove loading overlay
+                    imagePreviewElement.removeChild(loadingOverlay);
+                    
+                    if (imageUrl) {
+                        console.log('Image uploaded successfully:', imageUrl);
+                        requestBody.image_link = imageUrl;
+                        
+                        // Show success indicator briefly
+                        const successOverlay = document.createElement('div');
+                        successOverlay.className = 'upload-loading';
+                        successOverlay.style.backgroundColor = 'rgba(16, 142, 79, 0.7)';
+                        
+                        const successIcon = document.createElement('i');
+                        successIcon.className = 'fas fa-check';
+                        successIcon.style.fontSize = '22px';
+                        
+                        successOverlay.appendChild(successIcon);
+                        imagePreviewElement.appendChild(successOverlay);
+                        
+                        // Remove success indicator after a short delay
+                        setTimeout(() => {
+                            if (imagePreviewElement.contains(successOverlay)) {
+                                imagePreviewElement.removeChild(successOverlay);
+                            }
+                        }, 1000);
+                    } else {
+                        throw new Error('Failed to get image URL from upload');
+                    }
+                } catch (error) {
+                    console.error('Error uploading image:', error);
+                    
+                    // Remove loading overlay if still present
+                    const imagePreviewElement = document.querySelector('.image-preview');
+                    const loadingOverlay = imagePreviewElement.querySelector('.upload-loading');
+                    if (loadingOverlay) {
+                        imagePreviewElement.removeChild(loadingOverlay);
+                    }
+                    
+                    // Show error overlay
+                    const errorOverlay = document.createElement('div');
+                    errorOverlay.className = 'upload-loading';
+                    errorOverlay.style.backgroundColor = 'rgba(220, 38, 38, 0.7)';
+                    
+                    const errorIcon = document.createElement('i');
+                    errorIcon.className = 'fas fa-exclamation-triangle';
+                    errorIcon.style.fontSize = '18px';
+                    errorIcon.style.marginBottom = '5px';
+                    
+                    const errorText = document.createElement('span');
+                    errorText.textContent = 'Upload failed';
+                    errorText.style.fontSize = '10px';
+                    
+                    errorOverlay.appendChild(errorIcon);
+                    errorOverlay.appendChild(errorText);
+                    imagePreviewElement.appendChild(errorOverlay);
+                    
+                    // Remove error overlay after a delay
+                    setTimeout(() => {
+                        if (imagePreviewElement.contains(errorOverlay)) {
+                            imagePreviewElement.removeChild(errorOverlay);
+                        }
+                    }, 3000);
+                    
+                    loadingIndicator.remove();
+                    addMessage('assistant', 'Sorry, there was an error uploading your image. Please try again.');
+                    return;
+                }
+            }
+            
             // Send message to API
-            const response = await sendMessage(message, currentConversationId);
+            const response = await sendMessage(requestBody);
             
             // Log the complete response for debugging
             console.log('Full API response:', JSON.stringify(response));
@@ -146,6 +371,12 @@ document.addEventListener('DOMContentLoaded', () => {
             // Update conversation history
             updateConversationHistory(message, currentConversationId);
             
+            // Clear the image preview
+            imagePreview.src = '';
+            imagePreviewContainer.classList.add('hidden');
+            imageUploadInput.value = '';
+            selectedImage = null;
+            
         } catch (error) {
             // Remove loading indicator
             loadingIndicator.remove();
@@ -159,6 +390,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 addMessage('assistant', 'Sorry, an error occurred. Please try again.');
             }
             console.error('Error:', error);
+            
+            // Clear the image preview in case of error
+            imagePreview.src = '';
+            imagePreviewContainer.classList.add('hidden');
+            imageUploadInput.value = '';
+            selectedImage = null;
         }
     });
     
@@ -556,17 +793,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     // Function to send message to API
-    async function sendMessage(message, conversationId) {
-        const requestBody = {
-            message: message,
-            conversation_id: conversationId
-        };
-        
-        // Add email if user is logged in
-        if (currentUser) {
-            requestBody.email_id = currentUser.email;
-        }
-        
+    async function sendMessage(requestBody) {
         const response = await fetch('/api/v1/chat', {
             method: 'POST',
             headers: {
@@ -634,24 +861,70 @@ document.addEventListener('DOMContentLoaded', () => {
         // Add image if present
         if (imageUrl) {
             console.log('Adding image with URL:', imageUrl);
+            
+            // Create a container for the image with enhanced styling
             const imageContainer = document.createElement('div');
             imageContainer.classList.add('image-container');
             
+            // Create the image element
             const imageElement = document.createElement('img');
             imageElement.src = imageUrl;
-            imageElement.alt = 'Assistant generated image';
+            imageElement.alt = sender === 'user' ? 'Your uploaded image' : 'Assistant generated image';
             imageElement.style.maxWidth = '100%';
-            imageElement.style.marginTop = '10px';
-            imageElement.style.borderRadius = '6px';
+            imageElement.style.cursor = 'pointer';
+            
+            // Add click to expand functionality
+            imageElement.addEventListener('click', () => {
+                const modal = document.createElement('div');
+                modal.style.position = 'fixed';
+                modal.style.top = '0';
+                modal.style.left = '0';
+                modal.style.right = '0';
+                modal.style.bottom = '0';
+                modal.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+                modal.style.display = 'flex';
+                modal.style.alignItems = 'center';
+                modal.style.justifyContent = 'center';
+                modal.style.zIndex = '1000';
+                modal.style.padding = '20px';
+                modal.style.cursor = 'zoom-out';
+                
+                const modalImg = document.createElement('img');
+                modalImg.src = imageUrl;
+                modalImg.style.maxWidth = '90%';
+                modalImg.style.maxHeight = '90%';
+                modalImg.style.objectFit = 'contain';
+                modalImg.style.borderRadius = '8px';
+                
+                modal.appendChild(modalImg);
+                document.body.appendChild(modal);
+                
+                // Close modal on click
+                modal.addEventListener('click', () => {
+                    document.body.removeChild(modal);
+                });
+            });
             
             // Add loading state
             imageElement.style.opacity = '0.6';
             const loadingText = document.createElement('div');
             loadingText.textContent = 'Loading image...';
             loadingText.style.textAlign = 'center';
-            loadingText.style.marginTop = '5px';
+            loadingText.style.marginTop = '8px';
             loadingText.style.fontSize = '12px';
             loadingText.style.color = '#8e8ea0';
+            
+            // Add pulse animation to loading text
+            loadingText.style.animation = 'pulse 1.5s infinite';
+            const style = document.createElement('style');
+            style.textContent = `
+                @keyframes pulse {
+                    0% { opacity: 0.6; }
+                    50% { opacity: 1; }
+                    100% { opacity: 0.6; }
+                }
+            `;
+            document.head.appendChild(style);
             
             imageContainer.appendChild(imageElement);
             imageContainer.appendChild(loadingText);
@@ -661,6 +934,22 @@ document.addEventListener('DOMContentLoaded', () => {
             imageElement.onload = () => {
                 imageElement.style.opacity = '1';
                 loadingText.remove();
+                
+                // Add a small label that says "Click to expand"
+                const expandLabel = document.createElement('div');
+                expandLabel.textContent = 'Click to expand';
+                expandLabel.style.textAlign = 'center';
+                expandLabel.style.marginTop = '5px';
+                expandLabel.style.fontSize = '11px';
+                expandLabel.style.color = '#8e8ea0';
+                expandLabel.style.fontStyle = 'italic';
+                imageContainer.appendChild(expandLabel);
+                
+                // Fade out the expand label after 3 seconds
+                setTimeout(() => {
+                    expandLabel.style.transition = 'opacity 1s ease';
+                    expandLabel.style.opacity = '0';
+                }, 3000);
             };
             
             // Handle image error
@@ -696,8 +985,11 @@ document.addEventListener('DOMContentLoaded', () => {
         
         chatMessages.appendChild(messageDiv);
         
-        // Scroll to bottom
-        chatMessages.scrollTop = chatMessages.scrollHeight;
+        // Scroll to bottom with smooth animation
+        chatMessages.scrollTo({
+            top: chatMessages.scrollHeight,
+            behavior: 'smooth'
+        });
     }
     
     // Function to add loading indicator

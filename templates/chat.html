@@ -65,9 +65,21 @@
             
             <div class="chat-input-container">
                 <form id="chat-form">
+                    <div id="image-preview-container" class="image-preview-container hidden">
+                        <div class="image-preview">
+                            <img id="image-preview" src="" alt="Image Preview">
+                            <button type="button" id="remove-image-btn" class="remove-image-btn" aria-label="Remove image">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                    </div>
                     <div class="input-wrapper">
-                        <textarea id="chat-input" placeholder="Message ChatGPT..." rows="1"></textarea>
-                        <button type="submit" id="send-btn">
+                        <button type="button" id="upload-image-btn" class="upload-image-btn" aria-label="Upload image">
+                            <i class="fas fa-image"></i>
+                        </button>
+                        <textarea id="chat-input" placeholder="Message ChatGPT..." rows="1" aria-label="Message input"></textarea>
+                        <input type="file" id="image-upload" class="hidden" accept="image/*" aria-label="Upload image file">
+                        <button type="submit" id="send-btn" aria-label="Send message">
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="send-icon">
                                 <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
                             </svg>

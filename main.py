@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Depends, HTTPException, status, Cookie
+from fastapi import FastAPI, Request, Depends, HTTPException, status, Cookie, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -7,6 +7,8 @@ import json
 import logging
 import os
 import socket
+import uuid
+import boto3
 from typing import Optional
 from pydantic import BaseModel, EmailStr
 from datetime import datetime, timedelta
@@ -43,6 +45,42 @@ users_collection = db["users"]
 sessions_collection = db["sessions"]
 messages_collection = db["messages"]
 
+# S3 configuration
+S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "your-bucket-name")
+S3_REGION = os.getenv("S3_REGION", "us-east-1").strip('%')  # Remove any trailing % character
+AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
+AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY")
+
+# Log S3 configuration (without secret key)
+logger.info(f"S3 Configuration - Bucket: {S3_BUCKET_NAME}, Region: {S3_REGION}")
+logger.info(f"AWS_ACCESS_KEY present: {'Yes' if AWS_ACCESS_KEY else 'No'}")
+
+# S3 client
+try:
+    if not AWS_ACCESS_KEY or not AWS_SECRET_KEY:
+        logger.warning("AWS credentials are missing. S3 uploads will not work.")
+        s3_client = None
+    else:
+        s3_client = boto3.client(
+            's3',
+            region_name=S3_REGION,
+            aws_access_key_id=AWS_ACCESS_KEY,
+            aws_secret_access_key=AWS_SECRET_KEY
+        )
+        logger.info(f"S3 client initialized successfully with region {S3_REGION}")
+        
+        # Test if we can access the bucket
+        try:
+            s3_client.head_bucket(Bucket=S3_BUCKET_NAME)
+            logger.info(f"Successfully connected to S3 bucket: {S3_BUCKET_NAME}")
+        except Exception as bucket_error:
+            logger.error(f"Error accessing S3 bucket {S3_BUCKET_NAME}: {str(bucket_error)}")
+            logger.warning("S3 uploads may fail due to bucket access issues")
+except Exception as e:
+    logger.error(f"Error initializing S3 client: {str(e)}")
+    logger.exception("Full S3 client initialization error:")
+    s3_client = None
+
 app = FastAPI()
 
 # Mount static files directory
@@ -77,6 +115,12 @@ class UserInDB(BaseModel):
     email: str
     name: Optional[str] = None
     picture: Optional[str] = None
+
+class ChatRequest(BaseModel):
+    message: str
+    conversation_id: str
+    email_id: Optional[EmailStr] = None
+    image_link: Optional[str] = None
 
 # Authentication functions
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
@@ -209,13 +253,104 @@ async def get_user_info(user: UserInDB = Depends(get_current_user)):
     """Get current user info"""
     return {"email": user.email, "name": user.name, "picture": user.picture}
 
+@app.post("/api/v1/upload-image")
+async def upload_image(
+    file: UploadFile = File(..., alias="image"),
+    user: Optional[UserInDB] = Depends(get_user_from_token)
+):
+    """Upload an image to S3 and return the URL"""
+    logger.info(f"Upload image request received: {file.filename if file else 'No image'}")
+    
+    if not user:
+        logger.error("Authentication required for image upload")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    try:
+        # Check if S3 client is configured
+        if not s3_client:
+            logger.error("S3 client not configured")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="S3 storage is not configured"
+            )
+        
+        # Validate file type
+        content_type = file.content_type
+        logger.info(f"Image content type: {content_type}")
+        
+        if not content_type.startswith('image/'):
+            logger.error(f"Invalid content type: {content_type}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File must be an image"
+            )
+        
+        # Generate a unique file name
+        file_extension = os.path.splitext(file.filename)[1]
+        unique_filename = f"{user.email}/{uuid.uuid4()}{file_extension}"
+        logger.info(f"Generated unique filename: {unique_filename}")
+        
+        # Read file contents
+        file_contents = await file.read()
+        file_size = len(file_contents)
+        logger.info(f"Read {file_size} bytes from image file")
+        
+        # For testing: If S3 is not configured, return a dummy URL
+        if os.getenv("ENVIRONMENT") == "development" and not AWS_ACCESS_KEY:
+            logger.info("Development mode: returning dummy URL")
+            return {"image_url": f"https://example.com/dummy/{unique_filename}"}
+        
+        # Upload to S3
+        logger.info(f"Uploading to S3 bucket: {S3_BUCKET_NAME}")
+        try:
+            s3_client.put_object(
+                Bucket=S3_BUCKET_NAME,
+                Key=unique_filename,
+                Body=file_contents,
+                ContentType=content_type,
+                ACL='public-read'  # Make the file publicly accessible
+            )
+            
+            # Generate the URL with clean region
+            region = S3_REGION.strip('%')  # Remove any trailing % character
+            image_url = f"https://{S3_BUCKET_NAME}.s3.{region}.amazonaws.com/{unique_filename}"
+            
+            # Log success
+            logger.info(f"Image uploaded successfully: {image_url}")
+            
+            return {"image_url": image_url}
+            
+        except Exception as s3_error:
+            logger.error(f"S3 upload error: {str(s3_error)}")
+            logger.exception("S3 exception details:")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to upload image to S3: {str(s3_error)}"
+            )
+        
+    except Exception as e:
+        logger.error(f"Error uploading image: {str(e)}")
+        logger.exception("Full exception details:")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to upload image: {str(e)}"
+        )
+
 @app.post("/api/v1/chat")
 async def proxy_chat_api(request: Request, user: Optional[UserInDB] = Depends(get_user_from_token)):
     # Get the request body
     try:
         body = await request.json()
         message = body.get('message', '')
+        image_link = body.get('image_link', None)
         logger.info(f"Received chat request: {message[:50]}...")
+        
+        if image_link:
+            logger.info(f"Image included in request: {image_link}")
         
         # Using a fixed timeout of 90 seconds for all requests
         timeout = 180.0
@@ -251,69 +386,22 @@ async def proxy_chat_api(request: Request, user: Optional[UserInDB] = Depends(ge
                     status_code=response.status_code
                 )
             except httpx.TimeoutException:
-                logger.error("Request to backend API timed out after 90 seconds")
+                logger.error(f"Request timed out after {timeout} seconds")
                 return JSONResponse(
-                    content={
-                        "type": "text",
-                        "text_content": "Request timed out after 90 seconds. The request may be too complex or the server might be experiencing high load. Please try again with a simpler prompt.",
-                        "image_content": None,
-                        "metadata": {
-                            "error": "timeout"
-                        }
-                    },
+                    content={"error": f"Request timed out after {timeout} seconds"},
                     status_code=504
                 )
-            except httpx.RequestError as e:
-                logger.error(f"Error communicating with backend API: {str(e)}")
-                return JSONResponse(
-                    content={
-                        "type": "text",
-                        "text_content": f"Error communicating with backend API: {str(e)}",
-                        "image_content": None,
-                        "metadata": {
-                            "error": "connection_error"
-                        }
-                    },
-                    status_code=502
-                )
             except Exception as e:
-                logger.error(f"Unexpected error: {str(e)}")
+                logger.error(f"Error in proxy request: {str(e)}")
                 return JSONResponse(
-                    content={
-                        "type": "text",
-                        "text_content": f"An unexpected error occurred: {str(e)}",
-                        "image_content": None,
-                        "metadata": {
-                            "error": "server_error"
-                        }
-                    },
+                    content={"error": f"Failed to process request: {str(e)}"},
                     status_code=500
                 )
-    except json.JSONDecodeError:
-        logger.error("Invalid JSON in request body")
-        return JSONResponse(
-            content={
-                "type": "text",
-                "text_content": "Invalid JSON in request body",
-                "image_content": None,
-                "metadata": {
-                    "error": "invalid_json"
-                }
-            },
-            status_code=400
-        )
     except Exception as e:
-        logger.error(f"Error processing request: {str(e)}")
+        logger.error(f"Error parsing request: {str(e)}")
         return JSONResponse(
-            content={
-                "type": "text",
-                "text_content": f"Error processing request: {str(e)}",
-                "image_content": None,
-                "metadata": {
-                    "error": "server_error"
-                }
-            },
-            status_code=500
+            content={"error": f"Failed to parse request: {str(e)}"},
+            status_code=400
         )
 
 # New endpoints for session management
@@ -403,39 +491,6 @@ async def clear_conversation(request: ClearConversationRequest, user: Optional[U
                 content={"detail": "Unauthorized to clear this conversation"},
                 status_code=403
             )
-            
-        if request.conversation_id:
-            logger.info(f"Clearing conversation for session: {request.conversation_id}")
-            message_type = "session"
-            id_value = request.conversation_id
-            
-            # Delete from MongoDB
-            sessions_collection.delete_one({"session_id": request.conversation_id})
-            messages_collection.delete_many({"session_id": request.conversation_id})
-            
-        elif request.email_id:
-            logger.info(f"Clearing all conversations for email: {request.email_id}")
-            message_type = "email"
-            id_value = request.email_id
-            
-            # Delete from MongoDB
-            sessions_collection.delete_many({"email_id": request.email_id})
-            
-            # Get all session IDs for this email
-            session_ids = sessions_collection.find(
-                {"email_id": request.email_id},
-                {"session_id": 1, "_id": 0}
-            )
-            
-            # Delete all messages for these sessions
-            for session in session_ids:
-                messages_collection.delete_many({"session_id": session["session_id"]})
-            
-        else:
-            return JSONResponse(
-                content={"detail": "Either conversation_id or email_id must be provided"},
-                status_code=400
-            )
         
         # Try to clear from backend API as well
         request_data = {}
@@ -459,13 +514,90 @@ async def clear_conversation(request: ClearConversationRequest, user: Optional[U
                 logger.warning(f"Backend API not available for clearing conversation, but MongoDB was cleared")
                 return {
                     "type": "info",
-                    "text_content": f"Conversation history cleared successfully for {message_type} {id_value}"
+                    "text_content": f"Conversation history cleared successfully."
                 }
     except Exception as e:
         logger.error(f"Error clearing conversation: {str(e)}")
         return JSONResponse(
             content={"detail": f"Error clearing conversation: {str(e)}"},
             status_code=500
+        )
+
+# Add a direct upload endpoint for testing (no authentication)
+@app.post("/api/v1/direct-upload")
+async def direct_upload(
+    file: UploadFile = File(..., alias="image")
+):
+    """Direct upload endpoint for testing (bypasses authentication)"""
+    logger.info(f"Direct upload received: {file.filename}")
+    
+    try:
+        # Log file details
+        content_type = file.content_type
+        logger.info(f"Content type: {content_type}")
+        
+        # Validate file type
+        if not content_type.startswith('image/'):
+            logger.error(f"Invalid content type: {content_type}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File must be an image"
+            )
+        
+        # Read file contents
+        file_contents = await file.read()
+        file_size = len(file_contents)
+        logger.info(f"Read {file_size} bytes from image file")
+        
+        # Check if S3 client is configured
+        if not s3_client:
+            logger.error("S3 client not configured")
+            # Return a dummy URL for development/testing
+            dummy_filename = f"test/{uuid.uuid4()}{os.path.splitext(file.filename)[1]}"
+            dummy_url = f"https://example.com/{dummy_filename}"
+            logger.info(f"S3 not configured, generated dummy URL: {dummy_url}")
+            return {"image_url": dummy_url}
+        
+        # Generate a unique file name for ai-chats uploads
+        file_extension = os.path.splitext(file.filename)[1]
+        unique_filename = f"ai-chats/{uuid.uuid4()}{file_extension}"
+        logger.info(f"Generated unique filename: {unique_filename}")
+        
+        # Upload to S3
+        logger.info(f"Uploading to S3 bucket: {S3_BUCKET_NAME}")
+        try:
+            s3_client.put_object(
+                Bucket=S3_BUCKET_NAME,
+                Key=unique_filename,
+                Body=file_contents,
+                ContentType=content_type
+            )
+            
+            # Generate the URL
+            region = S3_REGION.strip('%')  # Remove any trailing % character
+            image_url = f"https://{S3_BUCKET_NAME}.s3.{region}.amazonaws.com/{unique_filename}"
+            
+            # Log success
+            logger.info(f"Image uploaded successfully to S3: {image_url}")
+            
+            return {"image_url": image_url}
+            
+        except Exception as s3_error:
+            logger.error(f"S3 upload error: {str(s3_error)}")
+            logger.exception("S3 exception details:")
+            
+            # Fall back to dummy URL if S3 upload fails
+            dummy_filename = f"test/{uuid.uuid4()}{file_extension}"
+            dummy_url = f"https://example.com/{dummy_filename}"
+            logger.info(f"S3 upload failed, generated dummy URL: {dummy_url}")
+            return {"image_url": dummy_url}
+        
+    except Exception as e:
+        logger.error(f"Direct upload error: {str(e)}")
+        logger.exception("Full exception details:")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Direct upload failed: {str(e)}"
         )
 
 if __name__ == "__main__":

@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>S3 Upload Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        h1 {
+            text-align: center;
+        }
+        .upload-form {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .upload-result {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            min-height: 100px;
+        }
+        .image-preview {
+            margin-top: 20px;
+            max-width: 100%;
+        }
+        .image-preview img {
+            max-width: 100%;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <h1>S3 Upload Test</h1>
+    
+    <div class="upload-form">
+        <h2>Test Direct Upload (No Auth)</h2>
+        <input type="file" id="image-file" accept="image/*">
+        <button id="upload-btn">Upload Image</button>
+        
+        <div class="upload-result" id="upload-result">
+            <p>Upload result will appear here...</p>
+        </div>
+        
+        <div class="image-preview" id="image-preview"></div>
+    </div>
+    
+    <script>
+        document.getElementById('upload-btn').addEventListener('click', async () => {
+            const fileInput = document.getElementById('image-file');
+            const resultDiv = document.getElementById('upload-result');
+            const previewDiv = document.getElementById('image-preview');
+            
+            if (!fileInput.files || fileInput.files.length === 0) {
+                resultDiv.innerHTML = '<p style="color:red;">Please select a file first</p>';
+                return;
+            }
+            
+            const file = fileInput.files[0];
+            if (!file.type.startsWith('image/')) {
+                resultDiv.innerHTML = '<p style="color:red;">Please select an image file</p>';
+                return;
+            }
+            
+            // Create form data
+            const formData = new FormData();
+            formData.append('image', file);
+            
+            resultDiv.innerHTML = '<p>Uploading...</p>';
+            
+            try {
+                // Upload the image
+                const response = await fetch('/api/v1/direct-upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Upload failed with status: ${response.status}`);
+                }
+                
+                const result = await response.json();
+                
+                // Display the result
+                resultDiv.innerHTML = `
+                    <p style="color:green;">Upload Successful!</p>
+                    <p>Image URL: <a href="${result.image_url}" target="_blank">${result.image_url}</a></p>
+                    <pre>${JSON.stringify(result, null, 2)}</pre>
+                `;
+                
+                // Show the image
+                previewDiv.innerHTML = `<img src="${result.image_url}" alt="Uploaded image">`;
+                
+            } catch (error) {
+                resultDiv.innerHTML = `<p style="color:red;">Error: ${error.message}</p>`;
+                console.error('Upload error:', error);
+            }
+        });
+    </script>
+</body>
+</html> 
