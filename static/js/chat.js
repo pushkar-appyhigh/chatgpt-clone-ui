@@ -830,6 +830,14 @@ if (uploadResponse.ok) {
                 content = content.replace(/\[here\]\([^)]+\)/i, '');
             }
         }
+        else {
+            const urlMatch = content.match(/(https?:\/\/[^\s"]+\.(?:png|jpg|jpeg|gif))/i);
+            if (urlMatch && urlMatch[1]) {
+                imageUrl = urlMatch[1];
+                console.log('Found raw image URL:', imageUrl);
+                content = content.replace(urlMatch[1], '');
+            }
+        }
         
         const messageDiv = document.createElement('div');
         messageDiv.classList.add('chat-message');
